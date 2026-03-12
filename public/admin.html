@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>后台管理 - 云端听书</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/blueimp-md5/2.19.0/js/md5.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #111827; color: #f3f4f6; }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+    </style>
+</head>
+<body>
+<div id="app" class="min-h-screen flex flex-col">
+    <nav class="bg-gray-900 border-b border-gray-800 p-4 shadow-lg sticky top-0 z-50">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <div class="text-xl font-bold text-purple-500 flex items-center gap-2">
+                <i class="fas fa-cogs"></i> 超级管理后台
+            </div>
+            <div v-if="user && user.isAdmin" class="flex gap-4 items-center">
+                <a href="/" class="text-sm text-gray-400 hover:text-white transition"><i class="fas fa-home"></i> 读者前台</a>
+                <span class="text-sm text-gray-300"><i class="fas fa-user-shield"></i> {{ user.username }}</span>
+                <button @click="logout" class="bg-red-500/10 text-red-400 px-3 py-1 rounded hover:bg-red-500/20 text-sm transition">退出</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="flex-grow max-w-6xl mx-auto w-full p-4 md:p-6 flex flex-col">
+        <transition name="fade" mode="out-in">
+            <div v-if="!user || !user.isAdmin" class="flex-grow flex flex-col items-center justify-center">
+                <div class="bg-gray-800 p-8 rounded-xl shadow-2xl max-w-md w-full border border-gray-700">
+                    <h2 class="text-2xl font-bold mb-6 text-center text-white"><i class="fas fa-lock text-purple-500"></i> 管理员登录</h2>
+                    <form @submit.prevent="login" class="flex flex-col gap-4">
+                        <div>
+                            <input v-model="loginForm.username" type="text" required class="w-full bg-gray-900 border border-gray-700 rounded p-3 text-white focus:outline-none focus:border-purple-500" placeholder="管理员账号">
+                        </div>
+                        <div>
+                            <input v-model="loginForm.password" type="password" required class="w-full bg-gray-900 border border-gray-700 rounded p-3 text-white focus:outline-none focus:border-purple-500" placeholder="管理密码">
+                        </div>
+                        <button type="submit" class="w-full bg-purple-600 text-white font-bold py-3 rounded mt-2 hover:bg-purple-700 transition">安全登录</button>
+                        <p v-if="loginError" class="text-sm text-center text-red-400 mt-2">{{loginError}}</p>
+                    </form>
+                </div>
+            </div>
+
+            <div v-else class="w-full h-full bg-gray-800 rounded-xl p-6 shadow-xl border border-gray-700">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="space-y-6">
+                        <div class="bg-gray-900 p-5 rounded-lg border border-gray-700">
+                            <h3 class="text-lg font-bold mb-4 text-purple-400">创建新书籍</h3>
+                            <form @submit.prevent="handleCreateBook" class="space-y-4">
+                                <div><input v-model="newBookForm.title" type="text" required class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" placeholder="书籍名称 (例如：三体)"></div>
+                                <div><input v-model="newBookForm.author" type="text" class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" placeholder="作者 (例如：刘慈欣)"></div>
+                                <div><input v-model="newBookForm.cover_url" type="url" class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" placeholder="封面图片 URL (可选)"></div>
+                                <button type="submit" class="w-full bg-purple-600 text-white font-bold py-2 rounded hover:bg-purple-700 transition"><i class="fas fa-plus-circle"></i> 创建书籍</button>
+                                <p v-if="createBookMsg" class="text-sm text-center text-green-400">{{createBookMsg}}</p>
+                            </form>
+                        </div>
+
+                        <div class="bg-gray-900 p-5 rounded-lg border border-gray-700">
+                            <h3 class="text-lg font-bold mb-4 text-emerald-400"><i class="fas fa-user-plus"></i> 分配新读者账号</h3>
+                            <form @submit.prevent="handleCreateUser" class="space-y-4">
+                                <div><input v-model="newUserForm.username" type="text" required class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" placeholder="输入新读者账号"></div>
+                                <div><input v-model="newUserForm.password" type="text" required class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" placeholder="设置初始密码 (将自动MD5加密)"></div>
+                                <button type="submit" class="w-full bg-emerald-600 text-white font-bold py-2 rounded hover:bg-emerald-700 transition">创建账号</button>
+                                <p v-if="createUserMsg" class="text-sm text-center" :class="createUserMsg.includes('成功') ? 'text-green-400' : 'text-red-400'">{{createUserMsg}}</p>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-900 p-5 rounded-lg border border-gray-700">
+                        <h3 class="text-lg font-bold mb-4 text-blue-400">批量上传文件夹</h3>
+                        <form @submit.prevent="handleBatchUpload" class="space-y-4">
+                            <div>
+                                <select v-model="uploadForm.bookId" required class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white">
+                                    <option value="" disabled>-- 必须先选择书籍 --</option>
+                                    <option v-for="b in books" :key="b.id" :value="b.id">{{b.title}}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <input type="file" webkitdirectory directory multiple accept="audio/*" @change="handleFolderSelect" required class="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:bg-blue-900 file:text-blue-300">
+                            </div>
+                            <div v-if="uploadForm.files.length > 0" class="bg-gray-800 rounded p-3 text-sm text-gray-300 border border-gray-700 max-h-40 overflow-y-auto">
+                                <p class="text-blue-400 mb-2 font-bold">待上传 {{uploadForm.files.length}} 个音频文件：</p>
+                                <ol class="list-decimal pl-5 space-y-1"><li v-for="file in uploadForm.files" :key="file.name" class="truncate">{{ file.name }}</li></ol>
+                            </div>
+                            <button type="submit" :disabled="isUploading" class="w-full bg-green-600 text-white font-bold py-2 rounded hover:bg-green-700 transition flex items-center justify-center gap-2 disabled:bg-gray-600">
+                                <i v-if="isUploading" class="fas fa-spinner fa-spin"></i><i v-else class="fas fa-cloud-upload-alt"></i> {{ isUploading ? '批量上传中...' : '确认批量上传' }}
+                            </button>
+                            <div v-if="uploadMsg" class="mt-2 text-sm text-center p-2 rounded" :class="uploadMsg.includes('成功') ? 'bg-green-900/30 text-green-400' : 'bg-blue-900/30 text-blue-400'">{{uploadMsg}}</div>
+                        </form>
+                    </div>
+
+                    <div class="bg-gray-900 p-5 rounded-lg border border-gray-700 col-span-1 md:col-span-2">
+                        <h3 class="text-lg font-bold mb-4 text-emerald-400"><i class="fas fa-users"></i> 读者账号管理</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm text-gray-400">
+                                <thead class="bg-gray-800 text-gray-300 border-b border-gray-700">
+                                <tr><th class="p-3">系统ID</th><th class="p-3">登录账号</th><th class="p-3 text-right">安全操作</th></tr>
+                                </thead>
+                                <tbody>
+                                <tr v-for="u in usersList" :key="u.id" class="border-b border-gray-800 hover:bg-gray-800/50 transition">
+                                    <td class="p-3">{{ u.id }}</td>
+                                    <td class="p-3 text-white font-medium">{{ u.username }}</td>
+                                    <td class="p-3 text-right">
+                                        <button @click="handleDeleteUser(u.id, u.username)" class="text-red-500 hover:text-white hover:bg-red-600 transition bg-red-900/30 px-3 py-1 rounded text-xs" :disabled="isDeletingUser === u.id">
+                                            <i v-if="isDeletingUser === u.id" class="fas fa-spinner fa-spin"></i>
+                                            <span v-else><i class="fas fa-user-times"></i> 删除账号</span>
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr v-if="usersList.length === 0">
+                                    <td colspan="3" class="p-4 text-center text-gray-500">暂无普通读者账号</td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-900 p-5 rounded-lg border border-gray-700 col-span-1 md:col-span-2">
+                        <h3 class="text-lg font-bold mb-4 text-red-400"><i class="fas fa-book"></i> 书籍与章节管理</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm text-gray-400">
+                                <thead class="bg-gray-800 text-gray-300 border-b border-gray-700">
+                                <tr><th class="p-3">书籍名称</th><th class="p-3">作者</th><th class="p-3 text-right">操作</th></tr>
+                                </thead>
+                                <tbody>
+                                <template v-for="b in books" :key="b.id">
+                                    <tr class="border-b border-gray-800 hover:bg-gray-800/50 transition">
+                                        <td class="p-3 text-white font-medium">{{ b.title }}</td><td class="p-3">{{ b.author }}</td>
+                                        <td class="p-3 text-right space-x-2">
+                                            <button @click="toggleChapterManagement(b.id)" class="text-blue-500 hover:text-white hover:bg-blue-600 transition bg-blue-900/30 px-3 py-1 rounded text-xs">
+                                                <i class="fas" :class="managingBookId === b.id ? 'fa-chevron-up' : 'fa-list'"></i> 章节管理
+                                            </button>
+                                            <button @click="handleDeleteBook(b.id, b.title)" class="text-red-500 hover:text-white hover:bg-red-600 transition bg-red-900/30 px-3 py-1 rounded text-xs" :disabled="isDeleting === b.id">
+                                                <i v-if="isDeleting === b.id" class="fas fa-spinner fa-spin"></i><span v-else><i class="fas fa-trash"></i> 彻底删除书籍</span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr v-if="managingBookId === b.id" class="bg-gray-900/50 border-b border-gray-800">
+                                        <td colspan="3" class="p-4">
+                                            <div v-if="isLoadingChapters" class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500"></i> 加载章节中...</div>
+                                            <div v-else-if="manageChapters.length === 0" class="text-center py-4 text-gray-500">暂无章节数据</div>
+                                            <div v-else class="space-y-3">
+                                                <div class="flex justify-between items-center text-xs font-bold text-gray-500 uppercase px-2">
+                                                    <span class="flex-grow">章节标题</span>
+                                                    <span class="w-24 text-right">操作</span>
+                                                </div>
+                                                <div v-for="chap in manageChapters" :key="chap.id" class="flex items-center gap-3 bg-gray-800 p-2 rounded border border-gray-700">
+                                                    <input v-model="chap.title" type="text" class="flex-grow bg-gray-900 border border-gray-600 rounded px-2 py-1 text-white focus:border-blue-500 outline-none text-sm" @change="handleUpdateChapter(chap)">
+                                                    <div class="w-24 text-right">
+                                                        <button @click="handleDeleteChapter(chap)" class="text-red-400 hover:text-red-300 p-1" title="删除该集" :disabled="isDeletingChapter === chap.id">
+                                                            <i v-if="isDeletingChapter === chap.id" class="fas fa-spinner fa-spin"></i>
+                                                            <i v-else class="fas fa-times-circle"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr v-if="books.length === 0">
+                                    <td colspan="3" class="p-4 text-center text-gray-500">暂无书籍记录</td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </transition>
+    </main>
+</div>
+
+<script>
+    const { createApp, ref, reactive, onMounted } = Vue;
+
+    const MOCK_DATA = {
+        books: [{ id: 1, title: '凡人修仙传 (演示)', author: '忘语', cover_url: 'https://images.unsplash.com/photo-1614527333038-f6828bce067d?auto=format&fit=crop&w=300&q=80' }],
+        chapters: [{ id: 101, book_id: 1, title: '第01集：初入山门', file_key: 'mock1', order_num: 1, skip_intro: 5, skip_outro: 5, url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' }]
+    };
+
+    const app = createApp({
+        setup() {
+            const user = ref(null);
+            const loginForm = reactive({ username: '', password: '' });
+            const loginError = ref('');
+
+            const books = ref([]);
+            const uploadForm = reactive({ bookId: '', files: [] }); //移除了 startOrderNum
+            const uploadMsg = ref('');
+            const isUploading = ref(false);
+
+            const newBookForm = reactive({ title: '', author: '', cover_url: '' });
+            const createBookMsg = ref('');
+
+            const newUserForm = reactive({ username: '', password: '' });
+            const createUserMsg = ref('');
+
+            const usersList = ref([]);
+            const isDeletingUser = ref(null);
+
+            const isDeleting = ref(null);
+
+            // 章节管理状态
+            const managingBookId = ref(null);
+            const manageChapters = ref([]);
+            const isLoadingChapters = ref(false);
+            const isDeletingChapter = ref(null);
+
+            const API_BASE = '';
+
+            const apiFetch = async (url, options = {}) => {
+                try {
+                    const token = localStorage.getItem('audiobook_token');
+                    if (token) options.headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
+
+                    const res = await fetch(API_BASE + url, options);
+                    const data = await res.json();
+                    // 拦截全局无权限错误
+                    if (res.status === 401 || res.status === 403) {
+                        if(url !== '/api/login') {
+                            alert("会话过期或权限不足，请重新登录");
+                            logout();
+                        }
+                    }
+                    return data;
+                } catch (err) {
+                    return handleMockApi(url, options);
+                }
+            };
+
+            const handleMockApi = async (url, options) => {
+                await new Promise(r => setTimeout(r, 400));
+                if (url.includes('/login')) {
+                    const { username, password } = JSON.parse(options.body);
+                    if (username === 'admin' && password === md5('admin123')) return { success: true, token: 'mock', user: { id: 'admin', username: 'admin', isAdmin: true } };
+                    return { success: false, error: '超管账号或密码错误 (Mock模式默认: admin/admin123)' };
+                }
+                if (url.includes('/books')) return { books: MOCK_DATA.books };
+                if (url.includes('/admin/books') && options.method === 'POST') {
+                    const newBook = JSON.parse(options.body);
+                    newBook.id = MOCK_DATA.books.length + 1;
+                    MOCK_DATA.books.unshift(newBook);
+                    return { success: true };
+                }
+                if (url.includes('/admin/users') && options.method === 'GET') return { users: [{ id: 1, username: 'test_user1' }] };
+                if (url.includes('/admin/users') && options.method === 'POST') return { success: true };
+                if (url.match(/\/admin\/users\/\d+/) && options.method === 'DELETE') return { success: true };
+                if (url.match(/\/books\/\d+\/chapters/)) {
+                    const bId = parseInt(url.split('/')[3]);
+                    return { chapters: MOCK_DATA.chapters.filter(c => c.book_id === bId) };
+                }
+                if (url.match(/\/admin\/chapters\/\d+/) && options.method === 'PUT') return { success: true };
+                if (url.match(/\/admin\/chapters\/\d+/) && options.method === 'DELETE') return { success: true };
+                if (url.match(/\/admin\/books\/\d+/) && options.method === 'DELETE') {
+                    const bId = parseInt(url.split('/')[3]);
+                    const idx = MOCK_DATA.books.findIndex(b => b.id === bId);
+                    if(idx > -1) MOCK_DATA.books.splice(idx, 1);
+                    return { success: true };
+                }
+                return { success: false, msg: 'Mock endpoint not mapped' };
+            };
+
+            onMounted(() => {
+                const savedUser = localStorage.getItem('audiobook_user');
+                const savedToken = localStorage.getItem('audiobook_token');
+                if (savedUser && savedToken) {
+                    const u = JSON.parse(savedUser);
+                    if(u.isAdmin) {
+                        user.value = u;
+                        loadBooks();
+                        loadUsers();
+                    } else {
+                        loginError.value = "抱歉，您不是管理员，无权访问后台。";
+                        localStorage.removeItem('audiobook_user');
+                        localStorage.removeItem('audiobook_token');
+                    }
+                }
+            });
+
+            const login = async () => {
+                loginError.value = '';
+                try {
+                    const res = await apiFetch('/api/login', {
+                        method: 'POST', body: JSON.stringify({ username: loginForm.username, password: md5(loginForm.password) })
+                    });
+                    if (res.success && res.user.isAdmin) {
+                        user.value = res.user;
+                        localStorage.setItem('audiobook_user', JSON.stringify(res.user));
+                        localStorage.setItem('audiobook_token', res.token);
+                        loadBooks();
+                        loadUsers();
+                    } else if (res.success && !res.user.isAdmin) {
+                        loginError.value = '您登录的是普通账号，无后台访问权限';
+                    } else {
+                        loginError.value = res.error || '登录失败';
+                    }
+                } catch (err) { loginError.value = '网络错误'; }
+            };
+
+            const logout = () => {
+                user.value = null;
+                localStorage.removeItem('audiobook_user');
+                localStorage.removeItem('audiobook_token');
+            };
+
+            const loadBooks = async () => {
+                const res = await apiFetch('/api/books');
+                books.value = res.books || [];
+            };
+
+            const loadUsers = async () => {
+                const res = await apiFetch('/api/admin/users');
+                usersList.value = res.users || [];
+            };
+
+            const handleFolderSelect = (e) => {
+                let files = Array.from(e.target.files).filter(f => f.type.startsWith('audio/') || f.name.match(/\.(mp3|m4a|wav|flac)$/i));
+                files.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+                uploadForm.files = files;
+            };
+
+            const handleBatchUpload = async () => {
+                if (uploadForm.files.length === 0) return;
+                isUploading.value = true;
+                const bookTitle = books.value.find(b => b.id === uploadForm.bookId)?.title || `book_${uploadForm.bookId}`;
+                let uploadedCount = 0;
+
+                // 获取一个基础时间戳，确保同一批次上传的文件能够按顺序生成严格递增的时间戳
+                const baseTimestamp = Date.now();
+
+                // 续传修复：成功一个移除一个
+                while (uploadForm.files.length > 0) {
+                    const file = uploadForm.files[0];
+                    const title = file.name.replace(/\.[^/.]+$/, "");
+                    uploadMsg.value = `正在上传: ${title} (剩余 ${uploadForm.files.length} 个)`;
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('bookId', uploadForm.bookId);
+                    formData.append('bookTitle', bookTitle);
+                    formData.append('title', title);
+
+                    // 使用 时间戳 + 当前成功数，确保文件排序绝对递增且唯一
+                    formData.append('orderNum', baseTimestamp + uploadedCount);
+
+                    try {
+                        const token = localStorage.getItem('audiobook_token');
+                        const res = await fetch(API_BASE + '/api/admin/upload-file', {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}` },
+                            body: formData
+                        });
+                        const result = await res.json();
+                        if (!result.success) throw new Error(result.error || '上传被拒绝');
+                    } catch (err) {
+                        uploadMsg.value = `失败: ${err.message}。您可以修复网络或等待后，直接点击按钮继续上传剩余文件。`;
+                        isUploading.value = false;
+                        return;
+                    }
+                    uploadForm.files.shift();
+                    uploadedCount++;
+                }
+
+                uploadMsg.value = `批量上传完成！本次共成功添加 ${uploadedCount} 集。`;
+                isUploading.value = false;
+                document.querySelector('input[type="file"]').value = '';
+            };
+
+            const handleCreateBook = async () => {
+                createBookMsg.value = "正在创建...";
+                const res = await apiFetch('/api/admin/books', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newBookForm) });
+                if (res.success) {
+                    createBookMsg.value = "创建成功！";
+                    newBookForm.title = ''; newBookForm.author = ''; newBookForm.cover_url = '';
+                    loadBooks(); setTimeout(() => createBookMsg.value = '', 3000);
+                } else { createBookMsg.value = "创建失败: " + res.error; }
+            };
+
+            const handleCreateUser = async () => {
+                createUserMsg.value = "正在创建...";
+                const res = await apiFetch('/api/admin/users', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ newUsername: newUserForm.username, newPassword: md5(newUserForm.password) })
+                });
+                if (res.success) {
+                    createUserMsg.value = "账号创建成功！";
+                    newUserForm.username = ''; newUserForm.password = '';
+                    loadUsers();
+                    setTimeout(() => createUserMsg.value = '', 3000);
+                } else { createUserMsg.value = res.error || "创建失败"; }
+            };
+
+            const handleDeleteUser = async (userId, username) => {
+                if (!confirm(`警告：确定要彻底删除账号【${username}】吗？不可撤销！`)) return;
+                isDeletingUser.value = userId;
+                const res = await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+                if (res.success) await loadUsers(); else alert(res.error || "删除失败");
+                isDeletingUser.value = null;
+            };
+
+            const toggleChapterManagement = async (bookId) => {
+                if (managingBookId.value === bookId) {
+                    managingBookId.value = null;
+                    manageChapters.value = [];
+                } else {
+                    managingBookId.value = bookId;
+                    isLoadingChapters.value = true;
+                    manageChapters.value = [];
+                    const res = await apiFetch(`/api/books/${bookId}/chapters?all=true`);
+                    manageChapters.value = res.chapters || [];
+                    isLoadingChapters.value = false;
+                }
+            };
+
+            const handleUpdateChapter = async (chap) => {
+                try {
+                    const res = await apiFetch(`/api/admin/chapters/${chap.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ title: chap.title }) // 这里移除了对 orderNum 的提交
+                    });
+                    if (!res.success) alert("更新失败: " + res.error);
+                } catch (err) { console.error("更新章节出错:", err); }
+            };
+
+            const handleDeleteChapter = async (chap) => {
+                if (!confirm(`确定要彻底删除章节【${chap.title}】及其音频文件吗？`)) return;
+                isDeletingChapter.value = chap.id;
+                try {
+                    const res = await apiFetch(`/api/admin/chapters/${chap.id}`, { method: 'DELETE' });
+                    if (res.success) {
+                        manageChapters.value = manageChapters.value.filter(c => c.id !== chap.id);
+                    } else { alert(res.error || "删除失败"); }
+                } catch (err) { alert("网络或执行出错: " + err.message); }
+                finally { isDeletingChapter.value = null; }
+            };
+
+            const handleDeleteBook = async (bookId, title) => {
+                if (!confirm(`警告：彻底删除《${title}》极其下属的所有音频？`)) return;
+                isDeleting.value = bookId;
+                const res = await apiFetch(`/api/admin/books/${bookId}`, { method: 'DELETE' });
+                if (res.success) await loadBooks(); else alert(res.error || "删除失败");
+                isDeleting.value = null;
+            };
+
+            return {
+                user, loginForm, login, logout, loginError, books,
+                uploadForm, uploadMsg, isUploading, handleFolderSelect, handleBatchUpload,
+                newBookForm, createBookMsg, handleCreateBook,
+                newUserForm, createUserMsg, handleCreateUser,
+                usersList, isDeletingUser, handleDeleteUser,
+                isDeleting, handleDeleteBook,
+                managingBookId, manageChapters, isLoadingChapters, isDeletingChapter, toggleChapterManagement, handleUpdateChapter, handleDeleteChapter
+            };
+        }
+    });
+    app.mount('#app');
+</script>
+</body>
+</html>

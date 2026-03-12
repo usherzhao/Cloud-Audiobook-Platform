@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>云端听书</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/blueimp-md5/2.19.0/js/md5.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #111827; color: #f3f4f6; }
+        .range-slider { -webkit-appearance: none; width: 100%; height: 6px; border-radius: 5px; background: #374151; outline: none; }
+        .range-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #3b82f6; cursor: pointer; transition: transform 0.1s; }
+        .range-slider::-webkit-slider-thumb:hover { transform: scale(1.2); }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+    </style>
+</head>
+<body>
+<div id="app" class="min-h-screen flex flex-col">
+    <nav class="bg-gray-900 border-b border-gray-800 p-4 shadow-lg sticky top-0 z-50">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <div class="text-xl font-bold text-blue-500 flex items-center gap-2 cursor-pointer" @click="currentView = 'home'">
+                <i class="fas fa-headphones-alt"></i> 云端听书
+            </div>
+            <div v-if="user" class="flex gap-4 items-center">
+                <a v-if="user.isAdmin" href="/admin.html" target="_blank" class="text-sm text-gray-400 hover:text-white transition"><i class="fas fa-cog"></i> 管理后台</a>
+                <span class="text-sm text-gray-300"><i class="fas fa-user-circle"></i> {{ user.username }}</span>
+                <button @click="logout" class="bg-red-500/10 text-red-400 px-3 py-1 rounded hover:bg-red-500/20 text-sm transition">退出</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="flex-grow max-w-6xl mx-auto w-full p-4 md:p-6 overflow-hidden flex flex-col">
+        <transition name="fade" mode="out-in">
+            <!-- 登录 -->
+            <div v-if="!user" class="flex-grow flex items-center justify-center">
+                <div class="bg-gray-800 p-8 rounded-xl shadow-2xl max-w-md w-full border border-gray-700">
+                    <h2 class="text-2xl font-bold mb-6 text-center text-white">读者登录</h2>
+                    <form @submit.prevent="login" class="flex flex-col gap-4">
+                        <div>
+                            <input v-model="loginForm.username" type="text" required class="w-full bg-gray-900 border border-gray-700 rounded p-3 text-white focus:outline-none focus:border-blue-500" placeholder="用户名">
+                        </div>
+                        <div>
+                            <input v-model="loginForm.password" type="password" required class="w-full bg-gray-900 border border-gray-700 rounded p-3 text-white focus:outline-none focus:border-blue-500" placeholder="密码">
+                        </div>
+                        <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 rounded mt-2 hover:bg-blue-700 transition">登 录</button>
+                        <p v-if="loginError" class="text-sm text-center text-red-400 mt-2">{{loginError}}</p>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 书架 -->
+            <div v-else-if="currentView === 'home'" class="w-full h-full">
+                <h2 class="text-2xl font-bold mb-6 flex items-center gap-2"><i class="fas fa-book-open text-blue-500"></i> 书架</h2>
+                <div v-if="isLoading" class="text-center text-gray-500 py-10"><i class="fas fa-spinner fa-spin text-3xl"></i></div>
+                <div v-else class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                    <div v-for="book in books" :key="book.id" @click="openBook(book)" class="bg-gray-800 rounded-lg overflow-hidden cursor-pointer hover:ring-2 ring-blue-500 transition group shadow-lg flex flex-col h-full">
+                        <div class="aspect-[3/4] overflow-hidden bg-gray-900 relative">
+                            <img :src="book.cover_url" alt="封面" class="w-full h-full object-cover group-hover:scale-105 transition duration-500" @error="e => e.target.src='https://via.placeholder.com/300x400?text=No+Cover'">
+                            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+                                <i class="fas fa-play-circle text-5xl text-white"></i>
+                            </div>
+                        </div>
+                        <div class="p-3 flex-grow flex flex-col justify-between">
+                            <h3 class="font-bold text-sm truncate" :title="book.title">{{ book.title }}</h3>
+                            <p class="text-xs text-gray-400 mt-1">{{ book.author }}</p>
+                        </div>
+                    </div>
+                    <div v-if="books.length === 0" class="col-span-full text-center text-gray-500 py-10">暂无书籍，请联系管理员添加。</div>
+                </div>
+            </div>
+
+            <!-- 播放器 -->
+            <div v-else-if="currentView === 'player'" class="w-full h-full flex flex-col md:flex-row gap-6">
+                <!-- 左侧：控制器 -->
+                <div class="w-full md:w-1/2 lg:w-2/5 bg-gray-800 rounded-2xl p-6 shadow-2xl border border-gray-700 flex flex-col items-center">
+                    <button @click="currentView = 'home'" class="self-start text-gray-400 hover:text-white mb-4"><i class="fas fa-arrow-left"></i> 返回书架</button>
+                    <img :src="activeBook.cover_url" class="w-48 h-64 object-cover rounded-xl shadow-lg mb-6 shadow-black/50" @error="e => e.target.src='https://via.placeholder.com/300x400?text=No+Cover'">
+                    <h2 class="text-xl font-bold text-center w-full truncate">{{ activeChapter ? activeChapter.title : '请选择章节' }}</h2>
+                    <p class="text-gray-400 text-sm mb-6">{{ activeBook.title }}</p>
+
+                    <div class="w-full" v-if="activeChapter">
+                        <audio ref="audioRef" @timeupdate="onTimeUpdate" @ended="playNext" @loadedmetadata="onLoadedMetadata" @play="isPlaying = true" @pause="isPlaying = false"></audio>
+                        <div class="flex justify-between text-xs text-gray-400 mb-2 font-mono">
+                            <span>{{ formatTime(currentTime) }}</span>
+                            <span>{{ formatTime(duration) }}</span>
+                        </div>
+                        <input type="range" class="range-slider w-full mb-6" :max="duration" :value="currentTime" @input="seekTo">
+
+                        <div class="flex justify-between w-full mb-6 text-sm text-gray-400 gap-4">
+                            <div class="flex items-center gap-2 bg-gray-900/80 px-3 py-2 rounded-lg border border-gray-700 w-1/2 shadow-inner focus-within:border-blue-500 transition">
+                                <label class="whitespace-nowrap"><i class="fas fa-forward mr-1 text-blue-500"></i>跳片头(s)</label>
+                                <input v-model.number="userSkipIntro" type="number" min="0" class="bg-transparent text-white w-full outline-none text-right font-mono">
+                            </div>
+                            <div class="flex items-center gap-2 bg-gray-900/80 px-3 py-2 rounded-lg border border-gray-700 w-1/2 shadow-inner focus-within:border-purple-500 transition">
+                                <label class="whitespace-nowrap"><i class="fas fa-step-forward mr-1 text-purple-500"></i>跳片尾(s)</label>
+                                <input v-model.number="userSkipOutro" type="number" min="0" class="bg-transparent text-white w-full outline-none text-right font-mono">
+                            </div>
+                        </div>
+
+                        <div class="flex justify-center items-center gap-6">
+                            <button @click="playPrev" class="text-gray-300 hover:text-white text-2xl" :disabled="!hasPrev" :class="{'opacity-50 cursor-not-allowed': !hasPrev}"><i class="fas fa-step-backward"></i></button>
+                            <button @click="togglePlay" class="w-16 h-16 bg-blue-600 rounded-full flex justify-center items-center text-white text-2xl hover:bg-blue-500 transition shadow-lg shadow-blue-900/50">
+                                <i :class="isPlaying ? 'fas fa-pause' : 'fas fa-play pl-1'"></i>
+                            </button>
+                            <button @click="playNext" class="text-gray-300 hover:text-white text-2xl" :disabled="!hasNext" :class="{'opacity-50 cursor-not-allowed': !hasNext}"><i class="fas fa-step-forward"></i></button>
+                        </div>
+
+                        <div class="flex justify-center mt-6">
+                            <div class="flex items-center gap-3 w-full max-w-[200px] text-gray-400">
+                                <i class="fas cursor-pointer hover:text-white w-4 text-center" :class="volume === 0 ? 'fa-volume-mute' : (volume < 0.5 ? 'fa-volume-down' : 'fa-volume-up')" @click="volume = volume === 0 ? 1 : 0"></i>
+                                <input type="range" class="range-slider flex-grow" min="0" max="1" step="0.01" v-model.number="volume">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右侧：章节列表与分页 -->
+                <div class="w-full md:w-1/2 lg:w-3/5 bg-gray-800 rounded-2xl p-4 shadow-xl border border-gray-700 flex flex-col h-[600px] md:h-auto relative">
+                    <div class="flex justify-between items-end mb-4 px-2">
+                        <div>
+                            <h3 class="text-lg font-bold"><i class="fas fa-list text-blue-500"></i> 播放列表</h3>
+                            <span class="text-sm text-gray-400">共 {{totalChapters}} 集</span>
+                        </div>
+                        <select v-model="sortOrder" class="bg-gray-900 border border-gray-700 text-sm text-gray-300 rounded px-2 py-1 outline-none focus:border-blue-500 transition">
+                            <option value="default">默认排序</option>
+                            <option value="titleAsc">名称正序(A-Z)</option>
+                            <option value="titleDesc">名称倒序(Z-A)</option>
+                        </select>
+                    </div>
+
+                    <!-- 滚动列表 -->
+                    <div class="flex-grow overflow-y-auto pr-2 space-y-2 mb-14">
+                        <div v-if="isLoadingChapters" class="text-center text-gray-500 py-10"><i class="fas fa-spinner fa-spin text-2xl"></i><p class="mt-2 text-sm">加载中...</p></div>
+                        <div v-else-if="chapters.length === 0" class="text-center text-gray-500 py-10">暂无章节内容</div>
+                        <div v-else v-for="(chap, index) in chapters" :key="chap.id" @click="playChapter(chap)" class="p-3 rounded-lg cursor-pointer transition flex items-center gap-3 border" :class="activeChapter?.id === chap.id ? 'bg-blue-900/30 border-blue-500/50 text-blue-400' : 'bg-gray-900 border-transparent hover:border-gray-600 text-gray-300'">
+                            <div class="w-8 text-center text-sm opacity-50">{{ (currentPage - 1) * pageSize + index + 1 }}</div>
+                            <div class="flex-grow truncate text-sm">{{ chap.title }}</div>
+                            <div v-if="activeChapter?.id === chap.id && isPlaying" class="w-4 flex justify-between items-end h-3">
+                                <div class="w-1 bg-blue-500 animate-[bounce_1s_infinite] h-full"></div>
+                                <div class="w-1 bg-blue-500 animate-[bounce_0.8s_infinite] h-2/3"></div>
+                                <div class="w-1 bg-blue-500 animate-[bounce_1.2s_infinite] h-full"></div>
+                            </div>
+                            <i v-else-if="activeChapter?.id === chap.id" class="fas fa-pause-circle text-blue-500"></i>
+                            <i v-else class="fas fa-play-circle opacity-0 group-hover:opacity-100"></i>
+                        </div>
+                    </div>
+
+                    <!-- 底部固定分页栏 -->
+                    <div class="absolute bottom-4 left-4 right-4 flex justify-between items-center bg-gray-900 p-2 rounded-lg border border-gray-700 shadow-lg">
+                        <button @click="currentPage--" :disabled="currentPage <= 1 || isLoadingChapters" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50 transition"><i class="fas fa-chevron-left"></i></button>
+                        <div class="flex items-center gap-2 text-sm text-gray-400">
+                            <span>第 {{ currentPage }} / {{ totalPages || 1 }} 页</span>
+                            <span class="mx-1">|</span>
+                            <input v-model.number="jumpEpisode" @keyup.enter="handleJumpEpisode" type="number" min="1" :max="totalChapters" class="w-14 bg-gray-800 border border-gray-600 rounded px-1 py-0.5 text-center text-white focus:border-blue-500 outline-none" placeholder="集数" title="输入集数回车跳转">
+                            <button @click="handleJumpEpisode" class="text-blue-500 hover:text-blue-400"><i class="fas fa-location-arrow"></i></button>
+                        </div>
+                        <button @click="currentPage++" :disabled="currentPage >= totalPages || isLoadingChapters" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50 transition"><i class="fas fa-chevron-right"></i></button>
+                    </div>
+                </div>
+            </div>
+        </transition>
+    </main>
+</div>
+
+<script>
+    const { createApp, ref, reactive, computed, onMounted, watch } = Vue;
+
+    const MOCK_DATA = {
+        books: [{ id: 1, title: '凡人修仙传 (演示)', author: '忘语', cover_url: 'https://images.unsplash.com/photo-1614527333038-f6828bce067d?auto=format&fit=crop&w=300&q=80' }],
+        chapters: Array.from({length: 35}, (_, i) => ({ id: 100+i, book_id: 1, title: `第${(i+1).toString().padStart(2,'0')}集：测试章节音频`, file_key: 'mock', order_num: i+1, skip_intro: 0, skip_outro: 0, url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' }))
+    };
+
+    const app = createApp({
+        setup() {
+            const user = ref(null);
+            const currentView = ref('login');
+            const loginForm = reactive({ username: '', password: '' });
+            const loginError = ref('');
+            const isLoading = ref(false);
+            const isLoadingChapters = ref(false);
+
+            const books = ref([]);
+            const chapters = ref([]); // 仅保存当前页的章节
+            const activeBook = ref(null);
+            const activeChapter = ref(null);
+
+            // 分页与排序状态
+            const sortOrder = ref('default');
+            const currentPage = ref(1);
+            const pageSize = ref(10);
+            const totalChapters = ref(0);
+            const jumpEpisode = ref('');
+
+            const audioRef = ref(null);
+            const isPlaying = ref(false);
+            const currentTime = ref(0);
+            const duration = ref(0);
+            const volume = ref(1);
+            const userSkipIntro = ref(0);
+            const userSkipOutro = ref(0);
+
+            let saveProgressTimeout = null;
+            const API_BASE = '';
+
+            const apiFetch = async (url, options = {}) => {
+                try {
+                    const token = localStorage.getItem('audiobook_token');
+                    if (token) options.headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
+                    const res = await fetch(API_BASE + url, options);
+                    return await res.json();
+                } catch (err) { return handleMockApi(url, options); }
+            };
+
+            const handleMockApi = async (url, options) => {
+                await new Promise(r => setTimeout(r, 400));
+                if (url.includes('/login')) {
+                    const { username, password } = JSON.parse(options.body);
+                    if (username === 'admin' && password === md5('admin123')) return { success: true, token: 'mock', user: { id: 'admin', username: 'admin', isAdmin: true } };
+                    if (username === 'test' && password === md5('123')) return { success: true, token: 'mock', user: { id: 1, username: 'test', isAdmin: false } };
+                    return { success: false, error: '账号错误(Mock：test/123 或 admin/admin123)' };
+                }
+                if (url.includes('/books')) return { books: MOCK_DATA.books };
+                if (url.match(/\/books\/\d+\/chapters/)) {
+                    const bId = parseInt(url.split('/')[3]);
+                    const urlObj = new URL(API_BASE ? API_BASE + url : 'http://localhost' + url);
+                    const page = parseInt(urlObj.searchParams.get('page')) || 1;
+                    const limit = parseInt(urlObj.searchParams.get('limit')) || 10;
+                    let filtered = MOCK_DATA.chapters.filter(c => c.book_id === bId);
+                    const total = filtered.length;
+                    const start = (page - 1) * limit;
+                    return { chapters: filtered.slice(start, start + limit), total, page, limit };
+                }
+                if (url.includes('/history') && options.method === 'GET') return { history: null };
+                if (url.includes('/history') && options.method === 'POST') return { success: true };
+                return { success: false, msg: 'Mock endpoint not mapped' };
+            };
+
+            onMounted(() => {
+                const savedUser = localStorage.getItem('audiobook_user');
+                const savedToken = localStorage.getItem('audiobook_token');
+                if (savedUser && savedToken) {
+                    user.value = JSON.parse(savedUser);
+                    loadBooks();
+                    currentView.value = 'home';
+                }
+                userSkipIntro.value = parseInt(localStorage.getItem('audiobook_skip_intro')) || 0;
+                userSkipOutro.value = parseInt(localStorage.getItem('audiobook_skip_outro')) || 0;
+                const savedVolume = localStorage.getItem('audiobook_volume');
+                if (savedVolume !== null) volume.value = parseFloat(savedVolume);
+            });
+
+            watch([userSkipIntro, userSkipOutro], ([newIntro, newOutro]) => {
+                localStorage.setItem('audiobook_skip_intro', newIntro);
+                localStorage.setItem('audiobook_skip_outro', newOutro);
+            });
+
+            watch(volume, (newVol) => {
+                localStorage.setItem('audiobook_volume', newVol);
+                if (audioRef.value) audioRef.value.volume = newVol;
+            });
+
+            const totalPages = computed(() => Math.ceil(totalChapters.value / pageSize.value) || 1);
+
+            // 根据当前页码和排序规则加载数据
+            const loadChapters = async () => {
+                if (!activeBook.value) return;
+                isLoadingChapters.value = true;
+                const res = await apiFetch(`/api/books/${activeBook.value.id}/chapters?page=${currentPage.value}&limit=${pageSize.value}&sort=${sortOrder.value}`);
+                chapters.value = res.chapters || [];
+                totalChapters.value = res.total || 0;
+                isLoadingChapters.value = false;
+            };
+
+            // 排序改变或页码改变时，触发后端异步拉取
+            watch(sortOrder, () => { if (activeBook.value) { currentPage.value = 1; loadChapters(); } });
+            watch(currentPage, (newPage, oldPage) => { if (activeBook.value && newPage !== oldPage) { loadChapters(); } });
+
+            // 快速跳转集数
+            const handleJumpEpisode = async () => {
+                const ep = parseInt(jumpEpisode.value);
+                if (!isNaN(ep) && ep > 0 && ep <= totalChapters.value) {
+                    const targetPage = Math.ceil(ep / pageSize.value);
+                    const indexOnPage = (ep - 1) % pageSize.value;
+
+                    if (currentPage.value !== targetPage) {
+                        currentPage.value = targetPage;
+                        await loadChapters();
+                    }
+                    if (chapters.value[indexOnPage]) {
+                        playChapter(chapters.value[indexOnPage]);
+                    }
+                }
+                jumpEpisode.value = '';
+            };
+
+            const login = async () => {
+                loginError.value = '';
+                try {
+                    const res = await apiFetch('/api/login', {
+                        method: 'POST', body: JSON.stringify({ username: loginForm.username, password: md5(loginForm.password) })
+                    });
+                    if (res.success) {
+                        user.value = res.user;
+                        localStorage.setItem('audiobook_user', JSON.stringify(res.user));
+                        localStorage.setItem('audiobook_token', res.token);
+                        loadBooks();
+                        currentView.value = 'home';
+                    } else { loginError.value = res.error || '登录失败'; }
+                } catch (err) { loginError.value = '网络错误'; }
+            };
+
+            const logout = () => {
+                user.value = null;
+                localStorage.removeItem('audiobook_user');
+                localStorage.removeItem('audiobook_token');
+                currentView.value = 'login';
+                if (audioRef.value) audioRef.value.pause();
+            };
+
+            const loadBooks = async () => {
+                isLoading.value = true;
+                const res = await apiFetch('/api/books');
+                books.value = res.books || [];
+                isLoading.value = false;
+            };
+
+            const openBook = async (book) => {
+                activeBook.value = book;
+                currentView.value = 'player';
+                chapters.value = [];
+                activeChapter.value = null;
+                sortOrder.value = 'default';
+
+                // 先去查询播放历史，看之前听到哪一集，以及它所在排序体系下的序号
+                const histRes = await apiFetch(`/api/history?userId=${user.value.id}&bookId=${book.id}&sort=default`);
+
+                if (histRes.history && histRes.history.chapter_index !== undefined) {
+                    // 智能计算历史记录所在的页码
+                    currentPage.value = Math.floor(histRes.history.chapter_index / pageSize.value) + 1;
+                    await loadChapters();
+                    const targetChapter = chapters.value.find(c => c.id === histRes.history.chapter_id);
+                    if (targetChapter) playChapter(targetChapter, histRes.history.progress);
+                    else playChapter(chapters.value[0]);
+                } else {
+                    currentPage.value = 1;
+                    await loadChapters();
+                    if (chapters.value.length > 0) playChapter(chapters.value[0]);
+                }
+            };
+
+            const playChapter = (chapter, startProgress = null) => {
+                activeChapter.value = chapter;
+
+                // 智能联动：切集时确保分页栏停留在该集所在页
+                const idx = chapters.value.findIndex(c => c.id === chapter.id);
+                if (idx === -1) { } // 不在当前页，由外部逻辑处理
+
+                isPlaying.value = true;
+                currentTime.value = 0;
+                duration.value = 0;
+
+                setTimeout(() => {
+                    const audio = audioRef.value;
+                    if (!audio) return;
+                    audio.src = chapter.url ? chapter.url : `/audio/${chapter.file_key}`;
+                    audio.volume = volume.value;
+                    audio.load();
+
+                    audio.oncanplay = () => {
+                        if (startProgress && startProgress > userSkipIntro.value) audio.currentTime = startProgress;
+                        else if (userSkipIntro.value > 0) audio.currentTime = userSkipIntro.value;
+                        audio.play().catch(e => { isPlaying.value = false; });
+                        audio.oncanplay = null;
+                    };
+                }, 50);
+            };
+
+            const togglePlay = () => {
+                const audio = audioRef.value;
+                if (!audio) return;
+                if (audio.paused) { audio.play(); isPlaying.value = true; }
+                else { audio.pause(); isPlaying.value = false; }
+            };
+
+            const onLoadedMetadata = () => { duration.value = audioRef.value.duration; };
+
+            const onTimeUpdate = () => {
+                const audio = audioRef.value;
+                if (!audio || !activeChapter.value) return;
+                currentTime.value = audio.currentTime;
+                if (currentTime.value > 0 && currentTime.value % 3 < 0.3) saveHistory();
+
+                // 自动播放下一集逻辑
+                const skipOutro = userSkipOutro.value || 0;
+                if (duration.value > 0 && skipOutro >= 0 && currentTime.value >= duration.value - skipOutro) {
+                    audio.pause();
+                    playNext();
+                }
+            };
+
+            const seekTo = (e) => {
+                if (!audioRef.value) return;
+                audioRef.value.currentTime = e.target.value;
+                currentTime.value = e.target.value;
+            };
+
+            // 异步支持：计算是否有上一集/下一集
+            const hasNext = computed(() => {
+                const currentIdx = chapters.value.findIndex(c => c.id === activeChapter.value?.id);
+                if (currentIdx === -1) return false;
+                if (currentIdx < chapters.value.length - 1) return true; // 本页还有下一集
+                return currentPage.value < totalPages.value; // 是否还有下一页
+            });
+
+            const hasPrev = computed(() => {
+                const currentIdx = chapters.value.findIndex(c => c.id === activeChapter.value?.id);
+                if (currentIdx === -1) return false;
+                if (currentIdx > 0) return true; // 本页还有上一集
+                return currentPage.value > 1; // 是否有上一页
+            });
+
+            const playNext = async () => {
+                const currentIdx = chapters.value.findIndex(c => c.id === activeChapter.value?.id);
+                if (currentIdx < chapters.value.length - 1) {
+                    playChapter(chapters.value[currentIdx + 1]);
+                } else if (currentPage.value < totalPages.value) {
+                    // 异步跨页连播
+                    currentPage.value++;
+                    await loadChapters();
+                    playChapter(chapters.value[0]);
+                } else {
+                    isPlaying.value = false;
+                }
+            };
+
+            const playPrev = async () => {
+                const currentIdx = chapters.value.findIndex(c => c.id === activeChapter.value?.id);
+                if (currentIdx > 0) {
+                    playChapter(chapters.value[currentIdx - 1]);
+                } else if (currentPage.value > 1) {
+                    // 异步跨页回退
+                    currentPage.value--;
+                    await loadChapters();
+                    playChapter(chapters.value[chapters.value.length - 1]);
+                }
+            };
+
+            const saveHistory = () => {
+                if (!user.value || !activeBook.value || !activeChapter.value) return;
+                clearTimeout(saveProgressTimeout);
+                saveProgressTimeout = setTimeout(() => {
+                    apiFetch('/api/history', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: user.value.id, bookId: activeBook.value.id, chapterId: activeChapter.value.id, progress: currentTime.value })
+                    });
+                }, 1000);
+            };
+
+            const formatTime = (secs) => {
+                if (!secs || isNaN(secs)) return '00:00';
+                const m = Math.floor(secs / 60).toString().padStart(2, '0');
+                const s = Math.floor(secs % 60).toString().padStart(2, '0');
+                return `${m}:${s}`;
+            };
+
+            onMounted(() => {
+                window.addEventListener('keydown', (e) => {
+                    if (e.code === 'Space' && currentView.value === 'player' && e.target.tagName !== 'INPUT') { e.preventDefault(); togglePlay(); }
+                });
+            });
+
+            return {
+                user, currentView, loginForm, login, logout, loginError,
+                books, chapters, activeBook, activeChapter, isLoading, isLoadingChapters,
+                openBook, playChapter, togglePlay, playNext, playPrev, hasNext, hasPrev,
+                audioRef, isPlaying, currentTime, duration, onTimeUpdate, onLoadedMetadata, seekTo, formatTime,
+                userSkipIntro, userSkipOutro, volume,
+                sortOrder, currentPage, pageSize, totalPages, totalChapters, jumpEpisode, handleJumpEpisode
+            };
+        }
+    });
+    app.mount('#app');
+</script>
+</body>
+</html>
