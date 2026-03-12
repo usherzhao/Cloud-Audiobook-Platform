@@ -1,4 +1,3 @@
-// src/worker.js
 import { AudiobookDB } from './db/do.js';
 import { D1Adapter } from './db/d1.js';
 
@@ -32,10 +31,15 @@ export default {
             });
         }
 
-        // 1. 处理获取音频文件的请求 (直接从 R2 流式返回)
+        // 1. 处理获取音频文件的请求 (直接从 R2 流式返回，修复 Range 分段加载)
         if (url.pathname.startsWith('/audio/')) {
             const fileKey = decodeURIComponent(url.pathname.replace('/audio/', ''));
-            const object = await env.AUDIO_BUCKET.get(fileKey);
+
+            // 【核心修复1】：将浏览器的 Range 和 If-None-Match 缓存头透传给 R2
+            const object = await env.AUDIO_BUCKET.get(fileKey, {
+                range: request.headers,
+                onlyIf: request.headers,
+            });
 
             if (!object) return new Response('Audio not found', { status: 404 });
 
@@ -45,7 +49,25 @@ export default {
             headers.set('Accept-Ranges', 'bytes');
             headers.set('Access-Control-Allow-Origin', '*');
 
-            return new Response(object.body, { headers });
+            // 如果浏览器端有缓存，R2 自动判断未修改，直接返回 304
+            if (!object.body) {
+                return new Response(null, { headers, status: 304 });
+            }
+
+            // 【核心修复2】：如果是范围请求，必须返回 206 状态码以及 Content-Range
+            let status = 200;
+            if (request.headers.get('range') !== null && object.range) {
+                status = 206; // 206 Partial Content
+                headers.set(
+                    'Content-Range',
+                    `bytes ${object.range.offset}-${object.range.offset + object.range.length - 1}/${object.size}`
+                );
+                headers.set('Content-Length', object.range.length);
+            } else {
+                headers.set('Content-Length', object.size);
+            }
+
+            return new Response(object.body, { headers, status });
         }
 
         // 获取根据配置初始化的数据库实例 (D1 或 DO)
