@@ -1,0 +1,27 @@
+name = "audiobook-platform"
+main = "src/worker.js"
+compatibility_date = "2024-03-20"
+
+# 绑定 R2 存储桶保存音频
+[[r2_buckets]]
+binding = "AUDIO_BUCKET"
+bucket_name = "audiobooks"
+
+# 绑定 Durable Objects 用于 SQLite 数据库
+[[durable_objects.bindings]]
+name = "AUDIOBOOK_DB"
+class_name = "AudiobookDB"
+
+# 数据库迁移记录
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AudiobookDB"]
+
+# 让 Worker 自动托管并返回 public 目录下的静态文件
+[assets]
+directory = "public"
+
+# 绑定 KV 存储用于管理员认证
+[[kv_namespaces]]
+binding = "ADMIN_KV"
+id = ""
