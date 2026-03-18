@@ -118,6 +118,12 @@
                                 <input type="range" class="range-slider flex-grow" min="0" max="1" step="0.01" v-model.number="volume">
                             </div>
                         </div>
+                        <div v-if="isRetrying" class="flex justify-center mt-3">
+                            <div class="text-yellow-400 text-sm flex items-center gap-2">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                <span>{{ retryMessage }}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -205,6 +211,12 @@
             const volume = ref(1);
             const userSkipIntro = ref(0);
             const userSkipOutro = ref(0);
+            const isRetrying = ref(false);
+            const retryCount = ref(0);
+            const retryMessage = ref('');
+            const isPlayingNext = ref(false);
+
+            const MAX_RETRY = 5;
 
             let saveProgressTimeout = null;
             const API_BASE = '';
@@ -357,6 +369,9 @@
 
             const playChapter = (chapter, startProgress = null) => {
                 activeChapter.value = chapter;
+                retryCount.value = 0;
+                retryMessage.value = '';
+                isRetrying.value = false;
 
                 // 智能联动：切集时确保分页栏停留在该集所在页
                 const idx = chapters.value.findIndex(c => c.id === chapter.id);
@@ -378,6 +393,22 @@
                         else if (userSkipIntro.value > 0) audio.currentTime = userSkipIntro.value;
                         audio.play().catch(e => { isPlaying.value = false; });
                         audio.oncanplay = null;
+                    };
+
+                    audio.onerror = () => {
+                        if (retryCount.value < MAX_RETRY) {
+                            isRetrying.value = true;
+                            retryCount.value++;
+                            retryMessage.value = `网络错误，正在重试 (${retryCount.value}/${MAX_RETRY})...`;
+                            setTimeout(() => {
+                                audio.load();
+                            }, 1500);
+                        } else {
+                            isRetrying.value = false;
+                            retryMessage.value = '';
+                            retryCount.value = 0;
+                            alert('播放失败：网络错误，请检查网络连接后重试');
+                        }
                     };
                 }, 50);
             };
@@ -427,17 +458,19 @@
             });
 
             const playNext = async () => {
+                if (isPlayingNext.value) return;
+                isPlayingNext.value = true;
                 const currentIdx = chapters.value.findIndex(c => c.id === activeChapter.value?.id);
                 if (currentIdx < chapters.value.length - 1) {
                     playChapter(chapters.value[currentIdx + 1]);
                 } else if (currentPage.value < totalPages.value) {
-                    // 异步跨页连播
                     currentPage.value++;
                     await loadChapters();
                     playChapter(chapters.value[0]);
                 } else {
                     isPlaying.value = false;
                 }
+                setTimeout(() => { isPlayingNext.value = false; }, 100);
             };
 
             const playPrev = async () => {
