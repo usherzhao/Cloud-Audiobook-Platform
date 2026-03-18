@@ -6,7 +6,7 @@ compatibility_date = "2024-03-20"
 # --- 环境变量配置：切换数据库类型 ---
 # 可选值: "D1" 或 "DO"
 [vars]
-DB_TYPE = "D1"
+DB_TYPE = "DO"
 
 # 绑定 R2 存储桶保存音频
 [[r2_buckets]]
@@ -20,18 +20,17 @@ directory = "public"
 # 绑定 KV 存储用于管理员认证
 [[kv_namespaces]]
 binding = "ADMIN_KV"
-id = "e064afa516094be4b339485ca3045b5e"
-
+id = "9410ddfeb6a04393b0f443c9829e705c"
 # ==========================================
 # 数据库绑定 (根据 DB_TYPE 自由选择)
 # ==========================================
 
 # 选项 A: D1 Serverless 数据库
 #帮顶d1数据库（zhaotaocan@gmail.com）
-[[d1_databases]]
-binding = "DB"
-database_name = "audiobook-db"
-database_id = "5cd97e2e-c79c-423c-bc05-7e099630c895"
+#[[d1_databases]]
+#binding = "DB"
+#database_name = "audiobook-db"
+#database_id = "5cd97e2e-c79c-423c-bc05-7e099630c895"
 
 # 选项 B: Durable Objects 用于 SQLite
 [[durable_objects.bindings]]
