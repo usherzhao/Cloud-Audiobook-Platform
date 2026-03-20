@@ -6,9 +6,10 @@ compatibility_date = "2024-03-20"
 # --- 环境变量配置：切换数据库类型 ---
 # 可选值: "D1" 或 "DO"
 [vars]
-DB_TYPE = "DO"
+DB_TYPE = "D1"
 
 # 绑定 R2 存储桶保存音频
+# npx wrangler r2 bucket create audiobooks
 [[r2_buckets]]
 binding = "AUDIO_BUCKET"
 bucket_name = "audiobooks"
@@ -18,24 +19,32 @@ bucket_name = "audiobooks"
 directory = "public"
 
 # 绑定 KV 存储用于管理员认证
+#npx wrangler kv namespace create ADMIN_KV
+#npx wrangler kv key put --binding=ADMIN_KV "admin_password" "0192023a7bbd73250516f069df18b500"
+## (可选) 设置超管用户名，默认是 admin
+## npx wrangler kv key put --binding=ADMIN_KV "admin_username" "你的超管用户名"
 [[kv_namespaces]]
 binding = "ADMIN_KV"
-id = "9410ddfeb6a04393b0f443c9829e705c"
+id = ""
+
 # ==========================================
 # 数据库绑定 (根据 DB_TYPE 自由选择)
 # ==========================================
 
 # 选项 A: D1 Serverless 数据库
 #帮顶d1数据库（zhaotaocan@gmail.com）
-#[[d1_databases]]
-#binding = "DB"
-#database_name = "audiobook-db"
-#database_id = "5cd97e2e-c79c-423c-bc05-7e099630c895"
+#npx wrangler d1 create audiobooks-db
+#binding="DB",这里必须是DB,代码里写死了
+[[d1_databases]]
+binding = "DB"
+database_name = "audiobooks-db"
+database_id = ""
+
 
 # 选项 B: Durable Objects 用于 SQLite
-[[durable_objects.bindings]]
-name = "AUDIOBOOK_DB"
-class_name = "AudiobookDB"
+#[[durable_objects.bindings]]
+#name = "AUDIOBOOK_DB"
+#class_name = "AudiobookDB"
 
 [[migrations]]
 tag = "v1"
